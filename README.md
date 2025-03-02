@@ -1,2 +1,2 @@
 # ML-Intrusion-Detection
-experiments for ML based intrusion detection
+Experiment for training machine learning models for intrusion detection, specifically on netflow data.
