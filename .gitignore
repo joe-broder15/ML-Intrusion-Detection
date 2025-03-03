@@ -1,6 +1,13 @@
 
 # for generated figures
 *.png
+*.pdf
+*.html
+*.csv
+*.json
+*.pkl
+*.joblib
+*.pickle
 
 
 
