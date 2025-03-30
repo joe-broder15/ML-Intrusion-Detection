@@ -1,23 +1,113 @@
-from sklearn.feature_selection import RFECV
+from sklearn.feature_selection import RFECV, chi2
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import StratifiedKFold
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
+from scipy.stats import chi2_contingency
 
+def select_features_by_chi2(df, categorical_features, target_column='label', independence_threshold=0.05, 
+                           max_features=None, verbose=True, eliminate_dependent=True):
+    """
+    Identifies and ranks categorical features based on their Chi-squared statistics
+    with the target label, returning features sorted by Chi-squared strength.
+    Also eliminates features that are not independent from already selected features.
+    
+    Parameters:
+        df (pandas.DataFrame): The dataset containing features and target variable.
+        categorical_features (list): List of categorical feature column names to consider.
+        target_column (str): Name of the target variable column. Default is 'label'.
+        independence_threshold (float): p-value threshold below which features are considered
+                                       dependent (not independent). Default is 0.05.
+        max_features (int, optional): Maximum number of features to select. If None, selects
+                                     as many as pass the independence test.
+        verbose (bool): Whether to print progress information. Default is True.
+        eliminate_dependent (bool): Whether to eliminate features that are dependent on
+                                   already selected features. Default is True.
+    
+    Returns:
+        list: Selected categorical features sorted by Chi-squared strength (highest to lowest)
+              with dependent features removed (if eliminate_dependent is True).
+    """
+    # Ensure target column is not in the categorical features list
+    cat_features = [f for f in categorical_features if f != target_column]
+    
+    # Extract categorical features and target
+    X_cat = df[cat_features]
+    y = df[target_column]
+    
+    # Calculate chi-squared scores for each feature against the target
+    chi2_scores, p_values = chi2(X_cat, y)
+    
+    # Pair each feature with its chi-squared score
+    feature_scores = list(zip(cat_features, chi2_scores))
+    
+    # Sort features by chi-squared score (highest to lowest)
+    sorted_scores = sorted(feature_scores, key=lambda x: x[1], reverse=True)
+    
+    # Initialize list of selected features
+    selected_features = []
+    
+    # Loop through features sorted by chi-squared score
+    for feature, score in sorted_scores:
+        # If we've reached maximum features, stop
+        if max_features is not None and len(selected_features) >= max_features:
+            break
+            
+        # Only check for independence if eliminate_dependent is True
+        if not eliminate_dependent:
+            selected_features.append(feature)
+            if verbose:
+                print(f"Selected feature '{feature}' (chi2 score: {score:.4f})")
+            continue
+            
+        # Only add feature if it's independent from already selected features
+        if not selected_features:
+            # If no features selected yet, add the first one
+            selected_features.append(feature)
+            if verbose:
+                print(f"Selected feature '{feature}' (chi2 score: {score:.4f})")
+        else:
+            # Check independence with already selected features
+            should_select = True
+            for selected_feature in selected_features:
+                # Create contingency table between the two categorical features
+                contingency = pd.crosstab(df[feature], df[selected_feature])
+                
+                # Perform chi-squared test of independence
+                _, p_value, _, _ = chi2_contingency(contingency)
+                
+                # If p-value is less than threshold, features are not independent
+                if p_value < independence_threshold:
+                    if verbose:
+                        print(f"Dropping feature '{feature}' (chi2 score: {score:.4f}) due to dependency (p-value: {p_value:.4f}) with already selected feature '{selected_feature}'")
+                    should_select = False
+                    break
+            
+            if should_select:
+                selected_features.append(feature)
+                if verbose:
+                    print(f"Selected feature '{feature}' (chi2 score: {score:.4f})")
+    
+    return selected_features
 
-def select_features_by_correlation(df, feature_columns, categorical_features=None, target_column='label'):
+def select_features_by_correlation(df, feature_columns, categorical_features=None, target_column='label', correlation_threshold=0.8):
     """
     Identifies and ranks numeric features based on their absolute Pearson correlation
     with the target label, returning features sorted by correlation strength.
+    Also eliminates highly correlated features among themselves.
     
     Parameters:
         df (pandas.DataFrame): The dataset containing features and target variable.
         feature_columns (list): List of feature column names to consider.
         categorical_features (list, optional): List of categorical features to exclude.
         target_column (str): Name of the target variable column. Default is 'label'.
+        correlation_threshold (float): Threshold above which features are considered
+                                     highly correlated. Default is 0.8.
     
     Returns:
-        list: All features sorted by correlation strength (highest to lowest).
+        list: Selected features sorted by correlation strength (highest to lowest)
+              with highly correlated features removed.
     """
     # Ensure we're working with a clean list of numeric features
     if categorical_features is not None:
@@ -41,8 +131,32 @@ def select_features_by_correlation(df, feature_columns, categorical_features=Non
     # Sort features by correlation strength (highest to lowest)
     sorted_correlations = sorted(correlations, key=lambda item: item[1], reverse=True)
     
-    # Return list of features sorted by correlation strength
-    return [feature for feature, _ in sorted_correlations]
+    # Get correlation matrix between features
+    correlation_matrix = df[numeric_features].corr().abs()
+    
+    # Initialize list of selected features
+    selected_features = []
+    
+    # Loop through features sorted by target correlation
+    for feature, corr_value in sorted_correlations:
+        # Only add feature if it's not highly correlated with any already selected feature
+        if not selected_features:
+            # If no features selected yet, add the first one
+            selected_features.append(feature)
+        else:
+            # Check correlation with already selected features
+            should_select = True
+            for selected_feature in selected_features:
+                if correlation_matrix.loc[feature, selected_feature] > correlation_threshold:
+                    # Skip this feature as it's highly correlated with an already selected one
+                    print(f"Dropping feature '{feature}' (target corr: {corr_value:.4f}) due to high correlation ({correlation_matrix.loc[feature, selected_feature]:.4f}) with already selected feature '{selected_feature}'")
+                    should_select = False
+                    break
+            
+            if should_select:
+                selected_features.append(feature)
+    
+    return selected_features
 
 
 

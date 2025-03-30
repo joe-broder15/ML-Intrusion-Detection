@@ -1,19 +1,21 @@
 from typing import List, Tuple  # Import type hints for better code clarity
 import pandas as pd
 import numpy as np
+from sklearn.preprocessing import StandardScaler  # Import StandardScaler for z-score normalization
 
 def preprocess_data(
     train_data: pd.DataFrame, 
     test_data: pd.DataFrame, 
     categorical_features: List[str], 
     features_to_transform: List[str],
-    columns_to_drop: List[str] = None
+    columns_to_drop: List[str] = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, List[str]]:
     """
     Preprocesses training and testing datasets by:
     1. Dropping unnecessary columns
     2. Applying log transformation to numeric features
-    3. One-hot encoding categorical features
+    3. Z-score normalizing numeric features
+    4. One-hot encoding categorical features
     
     Args:
         train_data: Training dataset
@@ -21,6 +23,7 @@ def preprocess_data(
         categorical_features: List of categorical features to one-hot encode
         features_to_transform: List of numeric features to apply log transformation
         columns_to_drop: Optional list of columns to remove
+        numeric_features: Optional list of numeric features to z-score normalize
         
     Returns:
         Tuple containing:
@@ -42,6 +45,11 @@ def preprocess_data(
     # Process numeric features on each dataset independently
     train_df = process_numeric_features(train_df, features_to_transform)
     test_df = process_numeric_features(test_df, features_to_transform)
+    
+    # Z-score normalize numeric features
+    numeric_features = [col for col in train_df.columns if col not in categorical_features and not col == 'label']
+    if numeric_features:
+        train_df, test_df = normalize_numeric_features(train_df, test_df, numeric_features)
     
     # Process categorical features on each dataset independently
     train_df, train_categorical_features = process_categorical_features(train_df, categorical_features)
@@ -71,6 +79,40 @@ def process_numeric_features(df: pd.DataFrame, features: List[str]) -> pd.DataFr
     print("Log transformation applied to numeric features (if present) in the dataset")
 
     return df
+
+def normalize_numeric_features(train_df: pd.DataFrame, test_df: pd.DataFrame, numeric_features: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Applies z-score normalization to numeric features in the provided dataframes.
+    Fits the scaler on the training data and applies it to both training and test data.
+    
+    Args:
+        train_df: Training dataframe
+        test_df: Testing dataframe
+        numeric_features: List of numeric features to normalize
+        
+    Returns:
+        Tuple containing normalized training and test dataframes
+    """
+    # Create a copy of the dataframes to avoid modifying the original
+    train_df_copy = train_df.copy()
+    test_df_copy = test_df.copy()
+    
+    # Filter to only include features that exist in both dataframes
+    features_to_normalize = [col for col in numeric_features if col in train_df.columns and col in test_df.columns]
+    
+    if features_to_normalize:
+        # Initialize the StandardScaler
+        scaler = StandardScaler()
+        
+        # Fit the scaler on the training data and transform both datasets
+        train_df_copy[features_to_normalize] = scaler.fit_transform(train_df_copy[features_to_normalize])
+        test_df_copy[features_to_normalize] = scaler.transform(test_df_copy[features_to_normalize])
+        
+        print(f"Z-score normalization applied to {len(features_to_normalize)} numeric features")
+    else:
+        print("No numeric features found for z-score normalization")
+    
+    return train_df_copy, test_df_copy
 
 def process_categorical_features(df: pd.DataFrame, cat_features: List[str]) -> Tuple[pd.DataFrame, List[str]]:
     """

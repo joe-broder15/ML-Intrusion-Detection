@@ -91,7 +91,7 @@ def perform_model_cv(df, model_class, model_params=None, feature_columns=None,
 
 # Example for backward compatibility
 def perform_logistic_regression_cv(df, feature_columns, label_column='label', n_splits=5, random_state=42,
-                                  penalty='l2', C=1.0, solver='saga', max_iter=5000, tol=1e-4, n_jobs=-1, 
+                                  penalty='l2', C=1.0, solver='sag', max_iter=5000, tol=1e-4, n_jobs=-1, 
                                   verbose=False, class_weight=None):
     """
     Wrapper function for backward compatibility.
