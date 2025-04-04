@@ -5,7 +5,7 @@ from sklearn.linear_model import LogisticRegression
 import numpy as np
 
 def perform_model_cv(df, model_class, model_params=None, feature_columns=None, 
-                 label_column='label', n_splits=5, random_state=42):
+                 label_column='label', n_splits=5, random_state=None):
     """
     Performs k-fold cross-validation for any sklearn model.
     
@@ -23,8 +23,8 @@ def perform_model_cv(df, model_class, model_params=None, feature_columns=None,
         Name of the target/label column
     n_splits : int, default=5
         Number of folds for cross-validation
-    random_state : int, default=42
-        Random seed for reproducibility
+    random_state : int, default=None
+        Random seed for reproducibility. None means a different random split each time.
         
     Returns:
     --------
@@ -88,40 +88,3 @@ def perform_model_cv(df, model_class, model_params=None, feature_columns=None,
         'false_negative_rate': {'mean': np.mean(fnr_list), 'std': np.std(fnr_list)}
     }
     return results
-
-# Example for backward compatibility
-def perform_logistic_regression_cv(df, feature_columns, label_column='label', n_splits=5, random_state=42,
-                                  penalty='l2', C=1.0, solver='sag', max_iter=5000, tol=1e-4, n_jobs=-1, 
-                                  verbose=False, class_weight=None):
-    """
-    Wrapper function for backward compatibility.
-    Performs k-fold cross-validation specifically for logistic regression.
-    """
-    model_params = {
-        'penalty': penalty,
-        'C': C,
-        'solver': solver,
-        'max_iter': max_iter,
-        'tol': tol,
-        'random_state': random_state,
-        'n_jobs': n_jobs,
-        'verbose': verbose,
-        'class_weight': class_weight
-    }
-    
-    return perform_model_cv(
-        df=df,
-        model_class=LogisticRegression,
-        model_params=model_params,
-        feature_columns=feature_columns,
-        label_column=label_column,
-        n_splits=n_splits,
-        random_state=random_state
-    )
-
-def pretty_print_results(results):
-    # Iterate through each metric in the results dictionary.
-    for metric, values in results.items():
-        # Format and print each metric's name, mean, and standard deviation.
-        print(f"{metric.replace('_', ' ').capitalize()}: {values['mean']:.4f} (±{values['std']:.4f})")
-

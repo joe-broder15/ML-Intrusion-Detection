@@ -2,6 +2,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 from sklearn.model_selection import StratifiedKFold
 from sklearn.base import clone
+from tqdm.notebook import tqdm
 
 def train_and_evaluate_model(train_df, test_df, selected_features, label_column, model=None, model_params=None, stratify=False, n_splits=5):
     """
@@ -53,7 +54,7 @@ def train_and_evaluate_model(train_df, test_df, selected_features, label_column,
         best_model = None
         best_score = -1
         
-        for train_idx, val_idx in skf.split(X_train, y_train):
+        for train_idx, val_idx in tqdm(skf.split(X_train, y_train), total=n_splits, desc="Cross-validation"):
             X_fold_train, X_fold_val = X_train[train_idx], X_train[val_idx]
             y_fold_train, y_fold_val = y_train[train_idx], y_train[val_idx]
             

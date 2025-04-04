@@ -1,7 +1,11 @@
-from typing import List, Tuple  # Import type hints for better code clarity
+from typing import List, Tuple
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import StandardScaler  # Import StandardScaler for z-score normalization
+from sklearn.preprocessing import StandardScaler
+import logging
+
+# Configure basic logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 def preprocess_data(
     train_data: pd.DataFrame, 
@@ -11,11 +15,7 @@ def preprocess_data(
     columns_to_drop: List[str] = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, List[str]]:
     """
-    Preprocesses training and testing datasets by:
-    1. Dropping unnecessary columns
-    2. Applying log transformation to numeric features
-    3. Z-score normalizing numeric features
-    4. One-hot encoding categorical features
+    Preprocesses training and testing datasets for machine learning.
     
     Args:
         train_data: Training dataset
@@ -23,7 +23,6 @@ def preprocess_data(
         categorical_features: List of categorical features to one-hot encode
         features_to_transform: List of numeric features to apply log transformation
         columns_to_drop: Optional list of columns to remove
-        numeric_features: Optional list of numeric features to z-score normalize
         
     Returns:
         Tuple containing:
@@ -31,107 +30,74 @@ def preprocess_data(
         - Processed testing dataset
         - List of categorical feature columns after one-hot encoding
     """
-    # Create copies to avoid modifying the original dataframes
+    logger = logging.getLogger(__name__)
+    
+    # Step 1: Create copies and drop specified columns
     train_df = train_data.copy()
     test_df = test_data.copy()
     
-    # Clean both datasets by removing columns that are not needed for modeling
+    # Ensure we're not dropping target column if present
+    if columns_to_drop and 'label' in train_df.columns and 'label' in columns_to_drop:
+        logger.warning("Removing 'label' from columns_to_drop to prevent dropping target variable")
+        columns_to_drop = [col for col in columns_to_drop if col != 'label']
+    
     if columns_to_drop:
-        for df in [train_df, test_df]:
-            for col in columns_to_drop:
-                if col in df.columns:
-                    df.drop(col, axis=1, inplace=True)
+        train_df = train_df.drop(columns=[col for col in columns_to_drop if col in train_df.columns])
+        test_df = test_df.drop(columns=[col for col in columns_to_drop if col in test_df.columns])
     
-    # Process numeric features on each dataset independently
-    train_df = process_numeric_features(train_df, features_to_transform)
-    test_df = process_numeric_features(test_df, features_to_transform)
+    # Step 2: Keep only common columns
+    common_columns = list(set(train_df.columns) & set(test_df.columns))
+    logger.info(f"Number of common columns: {len(common_columns)}")
     
-    # Z-score normalize numeric features
-    numeric_features = [col for col in train_df.columns if col not in categorical_features and not col == 'label']
-    if numeric_features:
-        train_df, test_df = normalize_numeric_features(train_df, test_df, numeric_features)
+    train_df = train_df[common_columns]
+    test_df = test_df[common_columns]
     
-    # Process categorical features on each dataset independently
-    train_df, train_categorical_features = process_categorical_features(train_df, categorical_features)
-    test_df, test_categorical_features = process_categorical_features(test_df, categorical_features)
+    # Step 3: Filter feature lists to include only common columns
+    categorical_features = [col for col in categorical_features if col in common_columns]
+    features_to_transform = [col for col in features_to_transform if col in common_columns]
     
-    # Calculate the union of the new categorical feature sets from training and testing datasets
-    common_categorical_features = [i for i in train_categorical_features if i in test_categorical_features]
+    # Step 4: Apply log transformation to numeric features
+    for feature in features_to_transform:
+        train_df[feature] = np.log1p(train_df[feature])
+        test_df[feature] = np.log1p(test_df[feature])
     
-    # Output the shapes of the processed datasets and confirm that all features are numeric
-    print(f"Training data shape: {train_df.shape}")
-    print(f"Testing data shape: {test_df.shape}")
-    print(f"Any non-numeric columns remaining in Training data: {any(not pd.api.types.is_numeric_dtype(train_df[col]) for col in train_df.columns)}")
+    # Step 5: One-hot encode categorical features
+    all_encoded_columns = []
     
-    return train_df, test_df, common_categorical_features
-
-def process_numeric_features(df: pd.DataFrame, features: List[str]) -> pd.DataFrame:
-    """
-    Applies a natural logarithm transformation (ln(x+1)) to each specified numeric feature 
-    in the provided dataframe. This helps to normalize the distribution of features and 
-    mitigate the effect of extreme values.
-    """
-    
-    # apply the log transformation to the features that were determined in EDA
-    for feature in features:
-        if feature in df.columns:
-            df[feature] = np.log1p(df[feature])
-    print("Log transformation applied to numeric features (if present) in the dataset")
-
-    return df
-
-def normalize_numeric_features(train_df: pd.DataFrame, test_df: pd.DataFrame, numeric_features: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Applies z-score normalization to numeric features in the provided dataframes.
-    Fits the scaler on the training data and applies it to both training and test data.
-    
-    Args:
-        train_df: Training dataframe
-        test_df: Testing dataframe
-        numeric_features: List of numeric features to normalize
+    for feature in categorical_features:
+        # Handle NaN values by converting to string "nan"
+        train_df[feature] = train_df[feature].fillna("nan").astype(str)
+        test_df[feature] = test_df[feature].fillna("nan").astype(str)
         
-    Returns:
-        Tuple containing normalized training and test dataframes
-    """
-    # Create a copy of the dataframes to avoid modifying the original
-    train_df_copy = train_df.copy()
-    test_df_copy = test_df.copy()
+        # Create dummy variables (only train categories are kept)
+        train_dummies = pd.get_dummies(train_df[feature], prefix=feature)
+        all_encoded_columns.extend(train_dummies.columns.tolist())
+        
+        # For test set, create dummies with same categories as train
+        test_dummies = pd.get_dummies(test_df[feature], prefix=feature)
+        
+        # Ensure test has same dummy columns as train
+        test_dummies = test_dummies.reindex(columns=train_dummies.columns, fill_value=0)
+        
+        # Drop original column and add dummies
+        train_df = train_df.drop(columns=[feature])
+        test_df = test_df.drop(columns=[feature])
+        
+        train_df = pd.concat([train_df, train_dummies], axis=1)
+        test_df = pd.concat([test_df, test_dummies], axis=1)
     
-    # Filter to only include features that exist in both dataframes
-    features_to_normalize = [col for col in numeric_features if col in train_df.columns and col in test_df.columns]
+    # Step 6: Normalize numeric features
+    # Identify numeric columns that aren't one-hot encoded or label
+    numeric_cols = [col for col in train_df.columns 
+                   if col not in all_encoded_columns 
+                   and col != 'label'
+                   and pd.api.types.is_numeric_dtype(train_df[col])]
     
-    if features_to_normalize:
-        # Initialize the StandardScaler
+    if numeric_cols:
         scaler = StandardScaler()
-        
-        # Fit the scaler on the training data and transform both datasets
-        train_df_copy[features_to_normalize] = scaler.fit_transform(train_df_copy[features_to_normalize])
-        test_df_copy[features_to_normalize] = scaler.transform(test_df_copy[features_to_normalize])
-        
-        print(f"Z-score normalization applied to {len(features_to_normalize)} numeric features")
-    else:
-        print("No numeric features found for z-score normalization")
+        train_df[numeric_cols] = scaler.fit_transform(train_df[numeric_cols])
+        test_df[numeric_cols] = scaler.transform(test_df[numeric_cols])
     
-    return train_df_copy, test_df_copy
-
-def process_categorical_features(df: pd.DataFrame, cat_features: List[str]) -> Tuple[pd.DataFrame, List[str]]:
-    """
-    One-hot encodes specified categorical features in the provided dataframe.
-    Processes each feature independently. If a feature is missing, a warning is printed.
+    logger.info(f"Processed shapes - Train: {train_df.shape}, Test: {test_df.shape}")
     
-    Returns:
-        Tuple containing:
-        - Updated dataframe with one-hot encoded categorical features
-        - List of the names of all the new categorical features
-    """
-    for feature in cat_features:
-        if feature in df.columns:
-            dummies = pd.get_dummies(df[feature].astype(str), prefix=feature)
-            df = df.drop(columns=[feature])
-            df = pd.concat([df, dummies], axis=1)
-        else:
-            print(f"Warning: '{feature}' not found in the dataframe; skipping one-hot encoding for this feature.")
-    print("One-hot encoding applied to categorical features in the dataset")
-    updated_dummy_cols = [col for col in df.columns if any(col.startswith(f"{feature}_") for feature in cat_features)]
-    print("Updated categorical feature columns:", updated_dummy_cols)
-    return df, updated_dummy_cols
+    return train_df, test_df, all_encoded_columns
